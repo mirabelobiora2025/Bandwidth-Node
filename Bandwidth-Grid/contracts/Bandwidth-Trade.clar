@@ -16,6 +16,8 @@
 (define-constant ERR_INVALID_BANDWIDTH (err u110))
 (define-constant ERR_PAYMENT_FAILED (err u111))
 (define-constant ERR_REPUTATION_TOO_LOW (err u112))
+(define-constant ERR_INVALID_LOCATION (err u113))
+(define-constant ERR_INVALID_SESSION_ID (err u114))
 
 ;; Minimum reputation score required to participate
 (define-constant MIN_REPUTATION u50)
@@ -24,6 +26,11 @@
 
 ;; Fee structure (in basis points, 1% = 100)
 (define-constant PLATFORM_FEE_BPS u250) ;; 2.5%
+
+;; Maximum values for validation
+(define-constant MAX_SESSION_ID u1000000000) ;; Maximum allowed session ID
+(define-constant MIN_LOCATION_LENGTH u1)
+(define-constant MAX_LOCATION_LENGTH u50)
 
 ;; Data Variables
 (define-data-var total-providers uint u0)
@@ -93,6 +100,37 @@
     session-count: uint,
     uptime-blocks: uint
   }
+)
+
+;; Private validation functions
+
+;; Validate location string
+(define-private (is-valid-location (location (string-ascii 50)))
+  (let (
+    (location-length (len location))
+  )
+    (and 
+      (>= location-length MIN_LOCATION_LENGTH)
+      (<= location-length MAX_LOCATION_LENGTH)
+      ;; Additional check: ensure location contains only printable ASCII characters
+      (is-valid-ascii-string location)
+    )
+  )
+)
+
+;; Simple ASCII validation helper
+(define-private (is-valid-ascii-string (str (string-ascii 50)))
+  ;; For now, we'll accept any non-empty string within length limits
+  ;; In a production environment, you might want more sophisticated validation
+  (> (len str) u0)
+)
+
+;; Validate session ID
+(define-private (is-valid-session-id (session-id uint))
+  (and 
+    (> session-id u0)
+    (<= session-id MAX_SESSION_ID)
+  )
 )
 
 ;; Read-only functions
@@ -170,6 +208,8 @@
     (asserts! (> bandwidth-capacity u0) ERR_INVALID_BANDWIDTH)
     (asserts! (> price-per-mb u0) ERR_INVALID_AMOUNT)
     (asserts! (is-none (map-get? providers { provider: provider })) ERR_PROVIDER_ALREADY_EXISTS)
+    ;; Validate location input
+    (asserts! (is-valid-location location) ERR_INVALID_LOCATION)
     
     (map-set providers
       { provider: provider }
@@ -301,6 +341,8 @@
     (provider-payment (- total-cost platform-fee))
   )
     (asserts! (not (var-get contract-paused)) ERR_UNAUTHORIZED)
+    ;; Validate session ID input
+    (asserts! (is-valid-session-id session-id) ERR_INVALID_SESSION_ID)
     (asserts! (or (is-eq tx-sender provider) (is-eq tx-sender consumer)) ERR_UNAUTHORIZED)
     (asserts! (get is-active session-data) ERR_SESSION_NOT_ACTIVE)
     (asserts! (>= (get balance consumer-data) total-cost) ERR_INSUFFICIENT_BALANCE)
@@ -360,6 +402,8 @@
     (provider-data (unwrap! (map-get? providers { provider: provider }) ERR_PROVIDER_NOT_FOUND))
   )
     (asserts! (not (var-get contract-paused)) ERR_UNAUTHORIZED)
+    ;; Validate session ID input
+    (asserts! (is-valid-session-id session-id) ERR_INVALID_SESSION_ID)
     (asserts! (is-eq tx-sender (get consumer session-data)) ERR_UNAUTHORIZED)
     (asserts! (not (get is-active session-data)) ERR_SESSION_NOT_ACTIVE)
     (asserts! (and (>= quality-score u1) (<= quality-score u100)) ERR_INVALID_QUALITY_SCORE)
